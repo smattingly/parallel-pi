@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Parallel Processing with JavaScript Web Worker Threads</title>
+    <meta charset="utf-8">
+    <style>
+        body {
+            padding: 10px;
+            font: 14px "Lucida Grande", Helvetica, Arial, sans-serif;
+        }
+    </style>    
+</head>
+<body>
+
+<h1>Parallel Processing with JavaScript Web Worker Threads</h1>
+<h2>Monte Carlo estimation of &pi;</h2>
+
+<form onsubmit="estimatePi(); return false;" method="post">
+    Points: <input type="number" name="points" value="1000" min="1000" max="10000000" step="1000">&nbsp;&nbsp;
+    Worker threads: <input type="number" name="threads" value="0" min="0" max="100">&nbsp;&nbsp;
+    Draw points <input type="checkbox" name="draw" checked>&nbsp;&nbsp;
+    <button id="goButton" type="submit">Go</button>
+</form>
+
+<p id="output">&nbsp;</p>
+
+<canvas id="myCanvas" style="border:1px solid #d3d3d3;">
+    Your browser does not support the canvas element.
+</canvas>
+
+<script>
+
+let circle = {};
+
+// TODO: how to remove this redundancy with .js file? Get clone error when making this method of circle object, or passing in message
+function generatePoint(circle) {
+    let point = {};
+    point.x = Math.random() * circle.radius * 2;
+    point.y = Math.random() * circle.radius * 2;
+    point.inCircle = Math.pow(point.x - circle.x, 2) + Math.pow(point.y - circle.y, 2) < Math.pow(circle.radius, 2);
+    return point;
+}
+
+function drawCircle() {
+    const output = document.getElementById("output");
+
+    if (!window.Worker) {
+        output.innerHTML = "This browser does not support Web workers (threads).";
+        return;
+    }
+
+    circle.x = circle.y = circle.radius = 325;
+
+    let canvas = document.getElementById("myCanvas");
+    let ctx = canvas.getContext("2d");
+    ctx.canvas.width = 2 * circle.radius;
+    ctx.canvas.height = 2 * circle.radius;
+
+    ctx.beginPath();
+    ctx.rect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.fillStyle = "red";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(circle.x, circle.y, circle.radius, 0, 2 * Math.PI);
+    ctx.fillStyle = "blue";
+    ctx.fill();
+};
+
+drawCircle();
+
+function estimatePi() {
+    drawCircle();
+
+    const output = document.getElementById("output");
+    output.innerHTML = "Performing Monte Carlo estimation ...";
+    let totalPoints = document.forms[0].points.value;
+    let threadCount = document.forms[0].threads.value;
+    let drawPoints = document.forms[0].draw.checked;
+    let pointsInCircle = 0;
+    let pointsGenerated = 0;
+    let canvas = document.getElementById("myCanvas");
+    let ctx = canvas.getContext("2d");
+
+    performance.clearMarks();
+    performance.clearMeasures(); 
+    performance.mark("begin");
+
+    if (threadCount == 0) {
+        let pointsInCircle = 0;
+        for (let i = 0; i < totalPoints; i++) {
+            let newPoint = generatePoint(circle);
+            if (newPoint.inCircle) pointsInCircle++;
+            if (drawPoints) handleEachPoint({ data: newPoint });
+        }
+        if (!drawPoints) handleTotalsOnly({ data: pointsInCircle });
+    }
+    else {
+        for (let i = 0; i < threadCount; i++) {
+	        let myWorker = new Worker("piWorker.js");
+            myWorker.postMessage([circle, totalPoints / threadCount, drawPoints]);
+
+            if (drawPoints) myWorker.onmessage = handleEachPoint;
+            else myWorker.onmessage = handleTotalsOnly;
+        }
+    }
+
+    function handleEachPoint(event) {
+        let newPoint = event.data;
+        ctx.beginPath();
+        ctx.arc(newPoint.x, newPoint.y, 1, 0, 2 * Math.PI);
+        ctx.fillStyle = "white";
+        ctx.fill();
+
+        if (newPoint.inCircle) pointsInCircle++;
+        if (++pointsGenerated >= totalPoints) finish();
+    }
+    
+    function handleTotalsOnly(event) {
+        pointsInCircle += event.data;
+        pointsGenerated += totalPoints / threadCount;
+        if (pointsGenerated >= totalPoints) finish();
+    };
+    
+    function finish() {
+        performance.mark("finish");
+        performance.measure("runTime", "begin", "finish")
+        let seconds = performance.getEntriesByName("runTime")[0].duration / 1000;
+        output.innerHTML = `Estimated &pi; as ${4 * pointsInCircle / totalPoints} in ${seconds} seconds.`;                  
+    }
+}
+</script> 
+</body>
+</html>
